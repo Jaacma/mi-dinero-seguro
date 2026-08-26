@@ -10,33 +10,91 @@ const today = new Date();
 let transactions = [];
 let budgets = {...DEFAULT_BUDGETS};
 let vaultKey = null;
+const SUPABASE_URL = 'https://jwwaepweihddrtxnksuj.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_5Dt8VoAePD4Y-xMQwDmU3A_S7r6It8Z';
+const AUTH_EMAIL = 'javieracostamartinez@gmail.com';
+const SESSION_STORAGE_KEY = 'miDineroAuthSession';
+let authSession = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || 'null');
+let saveQueue = Promise.resolve();
 let selectedMonth = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
 const $ = s => document.querySelector(s); const $$ = s => [...document.querySelectorAll(s)];
 const toBase64 = bytes => btoa(String.fromCharCode(...bytes));
 const fromBase64 = text => Uint8Array.from(atob(text),c=>c.charCodeAt(0));
+const setLockStatus = message => { $('#lockStatus').textContent = message || ''; };
+const setSyncStatus = (title,detail) => { $('#syncTitle').textContent=title; $('#syncDetail').textContent=detail; };
+function storeSession(data){
+  authSession={access_token:data.access_token,refresh_token:data.refresh_token,user:data.user,expires_at:data.expires_at||Math.floor(Date.now()/1000)+(data.expires_in||3600)};
+  localStorage.setItem(SESSION_STORAGE_KEY,JSON.stringify(authSession));
+}
+async function authRequest(path,body){
+  const response=await fetch(`${SUPABASE_URL}/auth/v1/${path}`,{method:'POST',headers:{apikey:SUPABASE_KEY,'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const data=await response.json().catch(()=>({}));
+  if(!response.ok)throw new Error(data.msg||data.message||data.error_description||'No se pudo verificar el acceso');
+  return data;
+}
+async function ensureSession(){
+  if(!authSession?.access_token)return false;
+  if((authSession.expires_at||0)>Math.floor(Date.now()/1000)+60)return true;
+  if(!authSession.refresh_token){authSession=null;localStorage.removeItem(SESSION_STORAGE_KEY);return false}
+  try{storeSession(await authRequest('token?grant_type=refresh_token',{refresh_token:authSession.refresh_token}));return true}catch{authSession=null;localStorage.removeItem(SESSION_STORAGE_KEY);return false}
+}
+async function apiFetch(path,options={}){
+  if(!await ensureSession())throw new Error('La sesión ha caducado. Solicita un nuevo código.');
+  const response=await fetch(`${SUPABASE_URL}/rest/v1/${path}`,{...options,headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${authSession.access_token}`,'Content-Type':'application/json',...(options.headers||{})}});
+  if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.message||'No se pudo sincronizar')}
+  return response;
+}
 async function keyFromSecret(secret){
   const material=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(secret));
   return crypto.subtle.importKey('raw',material,{name:'AES-GCM'},false,['encrypt','decrypt']);
 }
-async function save(){
+async function encryptedState(){
   if(!vaultKey)return;
   const iv=crypto.getRandomValues(new Uint8Array(12));
   const plain=new TextEncoder().encode(JSON.stringify({transactions,budgets}));
   const encrypted=await crypto.subtle.encrypt({name:'AES-GCM',iv},vaultKey,plain);
-  localStorage.setItem('miDineroVault',JSON.stringify({v:1,alg:'A256GCM',iv:toBase64(iv),data:toBase64(new Uint8Array(encrypted))}));
+  return {v:1,alg:'A256GCM',iv:toBase64(iv),data:toBase64(new Uint8Array(encrypted))};
+}
+async function decryptState(box,key){
+  const plain=await crypto.subtle.decrypt({name:'AES-GCM',iv:fromBase64(box.iv)},key,fromBase64(box.data));
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+async function save(){
+  if(!vaultKey)return;
+  const box=await encryptedState();
+  localStorage.setItem('miDineroVault',JSON.stringify(box));
   localStorage.removeItem('miDineroTransactions');localStorage.removeItem('miDineroBudgets');
+  if(authSession){
+    setSyncStatus('Sincronizando…','Cifrado de extremo a extremo');
+    await apiFetch('private_vaults?on_conflict=user_id,app_id',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify([{user_id:authSession.user.id,app_id:'mi-dinero',payload:box,revision:Date.now(),updated_at:new Date().toISOString()}])});
+    setSyncStatus('Sincronización activa','Ordenador y móvil');
+  }
+}
+function persist(){
+  saveQueue=saveQueue.then(()=>save()).catch(err=>{setSyncStatus('Pendiente de sincronizar',err.message);toast('Guardado en este dispositivo; se sincronizará al recuperar conexión')});
 }
 async function unlock(secret){
+  if(!await ensureSession())throw new Error('Primero verifica tu correo');
   if(!secret||secret.length<12)throw new Error('La clave debe tener al menos 12 caracteres');
   const key=await keyFromSecret(secret),vault=localStorage.getItem('miDineroVault');
+  let localState=null;
   if(vault){
-    const box=JSON.parse(vault),plain=await crypto.subtle.decrypt({name:'AES-GCM',iv:fromBase64(box.iv)},key,fromBase64(box.data));
-    const state=JSON.parse(new TextDecoder().decode(plain));transactions=state.transactions||[];budgets={...DEFAULT_BUDGETS,...(state.budgets||{})};
+    localState=await decryptState(JSON.parse(vault),key);
   }else{
     const legacyTx=JSON.parse(localStorage.getItem('miDineroTransactions')||'null'),legacyBudgets=JSON.parse(localStorage.getItem('miDineroBudgets')||'null');
-    transactions=legacyTx||[];budgets={...DEFAULT_BUDGETS,...(legacyBudgets||{})};
+    if(legacyTx||legacyBudgets)localState={transactions:legacyTx||[],budgets:legacyBudgets||{}};
   }
-  vaultKey=key;$('#lockScreen').hidden=true;document.body.classList.remove('locked');render();
+  let remoteState=null,remoteFound=false;
+  try{
+    const response=await apiFetch('private_vaults?app_id=eq.mi-dinero&select=payload,updated_at&limit=1');
+    const rows=await response.json();
+    if(rows[0]){remoteFound=true;remoteState=await decryptState(rows[0].payload,key)}
+  }catch(err){if(!localState)throw err}
+  const state=remoteState||localState||{transactions:[],budgets:{}};
+  transactions=state.transactions||[];budgets={...DEFAULT_BUDGETS,...(state.budgets||{})};vaultKey=key;
+  history.replaceState(null,'',location.pathname+location.search);
+  $('#lockScreen').hidden=true;document.body.classList.remove('locked');setSyncStatus('Sincronización activa','Ordenador y móvil');render();
+  if(!remoteFound)await save();
 }
 const monthName = key => {const [y,m]=key.split('-');return new Date(+y,+m-1,1).toLocaleDateString('es-ES',{month:'long',year:'numeric'}).replace(/^./,c=>c.toUpperCase())};
 const monthTx = (key=selectedMonth) => transactions.filter(t=>t.date.startsWith(key));
@@ -80,7 +138,7 @@ function renderReports(){
   const top=breakdown(tx)[0];if(top){$('#insightTitle').textContent=`${top[0]} concentra tu mayor gasto`;
     const pct=Math.round(top[1]/total*100),saving=income-total;$('#insightText').textContent=`Representa el ${pct}% de tus gastos de ${monthName(selectedMonth).toLowerCase()}. ${saving>=0?`Has ahorrado ${euro.format(saving)}, un ${income?Math.round(saving/income*100):0}% de tus ingresos.`:`Tus gastos superan tus ingresos en ${euro.format(Math.abs(saving))}.`}`}
 }
-function render(){populateMonths();renderDashboard();renderAllTransactions();renderBudgets();renderReports();save()}
+function render(){populateMonths();renderDashboard();renderAllTransactions();renderBudgets();renderReports()}
 function switchView(name){$$('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===name));$$('.view').forEach(v=>v.classList.remove('active'));$(`#${name}View`).classList.add('active');const titles={dashboard:'Hola, Javier',transactions:'Tus movimientos',budgets:'Presupuestos',reports:'Análisis mensual'};$('#pageTitle').textContent=titles[name];$('#eyebrow').textContent=name==='dashboard'?'MI ECONOMÍA':monthName(selectedMonth).toUpperCase();window.scrollTo({top:0,behavior:'smooth'})}
 function openTransaction(type='expense'){$('#transactionType').value=type;$('#modalTitle').textContent=type==='expense'?'Añadir gasto':'Añadir ingreso';$$('.type-switch button').forEach(b=>b.classList.toggle('active',b.dataset.type===type));categoryOptions(type);$('#date').value=new Date().toISOString().slice(0,10);$('#transactionDialog').showModal();setTimeout(()=>$('#amount').focus(),100)}
 function toast(msg){const el=$('#toast');el.textContent=msg;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2400)}
@@ -89,13 +147,34 @@ function escapeHtml(s){return String(s).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':
 $$('[data-view]').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view)));$$('[data-view-link]').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.viewLink)));$$('[data-add]').forEach(b=>b.addEventListener('click',()=>openTransaction(b.dataset.add)));
 $$('.type-switch button').forEach(b=>b.addEventListener('click',()=>{const type=b.dataset.type;$('#transactionType').value=type;$('#modalTitle').textContent=type==='expense'?'Añadir gasto':'Añadir ingreso';$$('.type-switch button').forEach(x=>x.classList.toggle('active',x===b));categoryOptions(type)}));
 $('#monthFilter').addEventListener('change',e=>{selectedMonth=e.target.value;render();const current=$('.view.active').id.replace('View','');switchView(current)});$('#searchInput').addEventListener('input',renderAllTransactions);$('#typeFilter').addEventListener('change',renderAllTransactions);
-$('#transactionForm').addEventListener('submit',e=>{e.preventDefault();const amount=parseFloat($('#amount').value.replace(',','.')),movementDate=$('#date').value;if(!amount||amount<=0){toast('Introduce un importe válido');return}transactions.push({id:crypto.randomUUID(),type:$('#transactionType').value,amount,concept:$('#concept').value.trim(),date:movementDate,category:$('#category').value,account:$('#account').value,nature:$('#nature').value,note:$('#note').value.trim()});e.target.reset();$('#transactionDialog').close();selectedMonth=movementDate.slice(0,7)||selectedMonth;render();toast('Movimiento guardado')});
-document.addEventListener('click',e=>{const id=e.target.dataset.delete;if(id&&confirm('¿Eliminar este movimiento?')){transactions=transactions.filter(t=>t.id!==id);render();toast('Movimiento eliminado')}});
+$('#transactionForm').addEventListener('submit',e=>{e.preventDefault();const amount=parseFloat($('#amount').value.replace(',','.')),movementDate=$('#date').value;if(!amount||amount<=0){toast('Introduce un importe válido');return}transactions.push({id:crypto.randomUUID(),type:$('#transactionType').value,amount,concept:$('#concept').value.trim(),date:movementDate,category:$('#category').value,account:$('#account').value,nature:$('#nature').value,note:$('#note').value.trim()});e.target.reset();$('#transactionDialog').close();selectedMonth=movementDate.slice(0,7)||selectedMonth;render();persist();toast('Movimiento guardado y sincronizado')});
+document.addEventListener('click',e=>{const id=e.target.dataset.delete;if(id&&confirm('¿Eliminar este movimiento?')){transactions=transactions.filter(t=>t.id!==id);render();persist();toast('Movimiento eliminado')}});
 $('#editBudgets').addEventListener('click',()=>{$('#budgetFields').innerHTML=EXPENSE_CATEGORIES.map(c=>`<label><span>${CATEGORIES[c].icon} ${c}</span><input name="${c}" type="number" min="0" step="10" value="${budgets[c]||0}"></label>`).join('');$('#budgetDialog').showModal()});
-$('#budgetForm').addEventListener('submit',e=>{e.preventDefault();EXPENSE_CATEGORIES.forEach(c=>budgets[c]=Number(e.target.elements[c].value)||0);$('#budgetDialog').close();render();toast('Presupuestos actualizados')});
+$('#budgetForm').addEventListener('submit',e=>{e.preventDefault();EXPENSE_CATEGORIES.forEach(c=>budgets[c]=Number(e.target.elements[c].value)||0);$('#budgetDialog').close();render();persist();toast('Presupuestos actualizados')});
 $('#exportBtn').addEventListener('click',()=>{const header=['fecha','tipo','concepto','categoria','naturaleza','cuenta','importe','nota'],rows=transactions.map(t=>[t.date,t.type,t.concept,t.category,t.nature,t.account,t.amount,t.note].map(v=>`"${String(v).replaceAll('"','""')}"`).join(';'));const blob=new Blob(['\ufeff'+[header.join(';'),...rows].join('\n')],{type:'text/csv;charset=utf-8'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`mi-dinero-${new Date().toISOString().slice(0,10)}.csv`;a.click();URL.revokeObjectURL(a.href)});
-$('#unlockForm').addEventListener('submit',async e=>{e.preventDefault();const secret=$('#unlockKey').value.trim();try{location.hash=encodeURIComponent(secret);await unlock(secret)}catch(err){alert(err.name==='OperationError'?'Clave incorrecta para los datos guardados.':err.message)}});
+$('#authForm').addEventListener('submit',async e=>{e.preventDefault();const button=e.submitter;button.disabled=true;setLockStatus('Enviando enlace privado…');try{await authRequest('otp',{email:AUTH_EMAIL,create_user:true,email_redirect_to:location.origin+location.pathname});setLockStatus('Revisa tu correo y abre el enlace de acceso desde este dispositivo.')}catch(err){setLockStatus(err.message)}finally{button.disabled=false}});
+$('#unlockForm').addEventListener('submit',async e=>{e.preventDefault();const secret=$('#unlockKey').value.trim();setLockStatus('Descargando y descifrando…');try{await unlock(secret)}catch(err){setLockStatus(err.name==='OperationError'?'Clave privada incorrecta.':err.message)}});
 if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});
 categoryOptions('expense');
-const initialSecret=decodeURIComponent(location.hash.slice(1));
-if(initialSecret){unlock(initialSecret).catch(()=>{$('#lockScreen').hidden=false;document.body.classList.add('locked')})}else{$('#lockScreen').hidden=false;document.body.classList.add('locked')}
+const rawFragment=location.hash.slice(1);
+const pendingSecret=rawFragment&&!rawFragment.includes('access_token=')&&!rawFragment.includes('error=')?decodeURIComponent(rawFragment):'';
+function captureAuthCallback(){
+  const params=new URLSearchParams(rawFragment);
+  if(!params.get('access_token'))return false;
+  const jwtPart=params.get('access_token').split('.')[1].replace(/-/g,'+').replace(/_/g,'/');
+  const claims=JSON.parse(decodeURIComponent(escape(atob(jwtPart.padEnd(Math.ceil(jwtPart.length/4)*4,'=')))));
+  storeSession({access_token:params.get('access_token'),refresh_token:params.get('refresh_token'),expires_at:Number(params.get('expires_at'))||undefined,expires_in:Number(params.get('expires_in'))||3600,user:{id:claims.sub,email:claims.email}});
+  history.replaceState(null,'',location.pathname+location.search);return true;
+}
+async function boot(){
+  $('#lockScreen').hidden=false;document.body.classList.add('locked');
+  captureAuthCallback();
+  if(await ensureSession()){
+    $('#authStep').hidden=true;$('#unlockForm').hidden=false;
+    if(pendingSecret){setLockStatus('Acceso verificado. Descifrando y sincronizando…');try{await unlock(pendingSecret)}catch(err){setLockStatus(err.name==='OperationError'?'La clave privada no coincide con los datos cifrados.':err.message)}}
+    else setLockStatus('Introduce tu clave privada para descifrar los datos.');
+  }else{
+    $('#authStep').hidden=false;$('#unlockForm').hidden=true;setLockStatus('Solicita un código para verificar tu identidad.');
+  }
+}
+boot();

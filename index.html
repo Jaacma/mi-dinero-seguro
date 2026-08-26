@@ -18,12 +18,19 @@
       <span class="lock-logo">M</span>
       <p class="eyebrow">ESPACIO PRIVADO</p>
       <h1>Tu dinero, solo para ti.</h1>
-      <p>Abre tu enlace privado o introduce la clave para acceder. Los datos se cifran antes de guardarse.</p>
-      <form id="unlockForm">
+      <p>Acceso exclusivo para Javier. Primero verificamos tu correo y después desciframos los datos en este dispositivo.</p>
+      <div id="authStep">
+        <form id="authForm">
+          <label><span>Correo autorizado</span><input type="email" value="javieracostamartinez@gmail.com" readonly /></label>
+          <button type="submit">Enviar enlace de acceso</button>
+        </form>
+      </div>
+      <form id="unlockForm" hidden>
         <label><span>Clave privada</span><input id="unlockKey" type="password" autocomplete="current-password" placeholder="Introduce tu clave" required /></label>
-        <button type="submit">Entrar a Mi Dinero</button>
+        <button type="submit">Descifrar y entrar</button>
       </form>
-      <small>Cifrado AES-256-GCM · La clave no se envía al servidor</small>
+      <p class="lock-status" id="lockStatus" role="status"></p>
+      <small>Doble protección · Correo autorizado + AES-256-GCM · La clave privada nunca se envía</small>
     </div>
   </div>
   <div class="app-shell">
@@ -38,7 +45,7 @@
         <button class="nav-item" data-view="reports"><span class="icon">⌁</span>Informes</button>
       </nav>
       <div class="sidebar-bottom">
-        <div class="sync-card"><span class="sync-dot"></span><div><strong>Datos cifrados</strong><small>AES-256-GCM</small></div></div>
+        <div class="sync-card"><span class="sync-dot"></span><div><strong id="syncTitle">Datos cifrados</strong><small id="syncDetail">Conectando…</small></div></div>
         <button class="nav-item" id="exportBtn"><span class="icon">⇩</span>Exportar CSV</button>
       </div>
     </aside>

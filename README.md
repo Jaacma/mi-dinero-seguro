@@ -10,8 +10,10 @@ Aplicación independiente y responsive para registrar y analizar gastos e ingres
 - Presupuestos mensuales por categoría.
 - Buscador, filtros, borrado y exportación CSV.
 - Diseño móvil instalable como PWA.
-- Persistencia local cifrada con AES-256-GCM.
-- Pantalla de acceso mediante clave privada conservada únicamente en el fragmento del enlace.
+- Cifrado AES-256-GCM en el dispositivo antes de guardar o sincronizar.
+- Acceso limitado al correo autorizado mediante enlace de un solo uso.
+- Sincronización cifrada entre ordenador y móvil mediante Supabase.
+- Row Level Security: cada lectura y escritura exige el usuario autorizado.
 
 ## Probar en local
 
@@ -25,4 +27,4 @@ Abre `http://localhost:8080`.
 
 ## Privacidad y sincronización
 
-La versión de prueba guarda los datos en el navegador. Para sincronizar ordenador y móvil, la versión publicada debe usar autenticación y base de datos privada (Supabase con Row Level Security). La interfaz ya está separada de la capa de almacenamiento para conectar esa fase sin rehacer el diseño.
+La base remota solo recibe un bloque cifrado. La clave privada se usa localmente y nunca se envía a Supabase. También se mantiene una copia cifrada en el dispositivo para poder recuperarse de cortes de conexión. El repositorio no contiene movimientos, saldos ni credenciales privilegiadas; la clave publicable de Supabase está diseñada para clientes web y queda protegida por las políticas RLS.
