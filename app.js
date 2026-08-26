@@ -12,7 +12,6 @@ let budgets = {...DEFAULT_BUDGETS};
 let vaultKey = null;
 const SUPABASE_URL = 'https://jwwaepweihddrtxnksuj.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_5Dt8VoAePD4Y-xMQwDmU3A_S7r6It8Z';
-const AUTH_EMAIL = 'javieracostamartinez@gmail.com';
 const SESSION_STORAGE_KEY = 'miDineroAuthSession';
 let authSession = JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || 'null');
 let saveQueue = Promise.resolve();
@@ -152,7 +151,7 @@ document.addEventListener('click',e=>{const id=e.target.dataset.delete;if(id&&co
 $('#editBudgets').addEventListener('click',()=>{$('#budgetFields').innerHTML=EXPENSE_CATEGORIES.map(c=>`<label><span>${CATEGORIES[c].icon} ${c}</span><input name="${c}" type="number" min="0" step="10" value="${budgets[c]||0}"></label>`).join('');$('#budgetDialog').showModal()});
 $('#budgetForm').addEventListener('submit',e=>{e.preventDefault();EXPENSE_CATEGORIES.forEach(c=>budgets[c]=Number(e.target.elements[c].value)||0);$('#budgetDialog').close();render();persist();toast('Presupuestos actualizados')});
 $('#exportBtn').addEventListener('click',()=>{const header=['fecha','tipo','concepto','categoria','naturaleza','cuenta','importe','nota'],rows=transactions.map(t=>[t.date,t.type,t.concept,t.category,t.nature,t.account,t.amount,t.note].map(v=>`"${String(v).replaceAll('"','""')}"`).join(';'));const blob=new Blob(['\ufeff'+[header.join(';'),...rows].join('\n')],{type:'text/csv;charset=utf-8'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`mi-dinero-${new Date().toISOString().slice(0,10)}.csv`;a.click();URL.revokeObjectURL(a.href)});
-$('#authForm').addEventListener('submit',async e=>{e.preventDefault();const button=e.submitter;button.disabled=true;setLockStatus('Enviando enlace privado…');try{await authRequest('otp',{email:AUTH_EMAIL,create_user:true,email_redirect_to:location.origin+location.pathname});setLockStatus('Revisa tu correo y abre el enlace de acceso desde este dispositivo.')}catch(err){setLockStatus(err.message)}finally{button.disabled=false}});
+$('#authForm').addEventListener('submit',async e=>{e.preventDefault();const button=e.submitter,email=$('#authEmail').value.trim().toLowerCase();button.disabled=true;setLockStatus('Enviando enlace privado…');try{await authRequest('otp',{email,create_user:true,email_redirect_to:location.origin+location.pathname});setLockStatus('Si el correo está autorizado, recibirás un enlace de acceso.')}catch(err){setLockStatus(err.message)}finally{button.disabled=false}});
 $('#unlockForm').addEventListener('submit',async e=>{e.preventDefault();const secret=$('#unlockKey').value.trim();setLockStatus('Descargando y descifrando…');try{await unlock(secret)}catch(err){setLockStatus(err.name==='OperationError'?'Clave privada incorrecta.':err.message)}});
 if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{});
 categoryOptions('expense');
