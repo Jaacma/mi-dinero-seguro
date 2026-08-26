@@ -1,0 +1,10 @@
+{
+  "name": "Mi Dinero — Finanzas personales",
+  "short_name": "Mi Dinero",
+  "description": "Panel privado de gastos e ingresos",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f6f7f2",
+  "theme_color": "#142b24",
+  "icons": []
+}

@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#f6f7f2" />
+  <meta name="description" content="Panel privado de finanzas personales" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <title>Mi Dinero</title>
+</head>
+<body>
+  <div class="lock-screen" id="lockScreen" hidden>
+    <div class="lock-card">
+      <span class="lock-logo">M</span>
+      <p class="eyebrow">ESPACIO PRIVADO</p>
+      <h1>Tu dinero, solo para ti.</h1>
+      <p>Abre tu enlace privado o introduce la clave para acceder. Los datos se cifran antes de guardarse.</p>
+      <form id="unlockForm">
+        <label><span>Clave privada</span><input id="unlockKey" type="password" autocomplete="current-password" placeholder="Introduce tu clave" required /></label>
+        <button type="submit">Entrar a Mi Dinero</button>
+      </form>
+      <small>Cifrado AES-256-GCM · La clave no se envía al servidor</small>
+    </div>
+  </div>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="#" aria-label="Mi Dinero">
+        <span class="brand-mark">M</span><span>mi<span>dinero</span></span>
+      </a>
+      <nav class="main-nav" aria-label="Navegación principal">
+        <button class="nav-item active" data-view="dashboard"><span class="icon">⌂</span>Resumen</button>
+        <button class="nav-item" data-view="transactions"><span class="icon">↕</span>Movimientos</button>
+        <button class="nav-item" data-view="budgets"><span class="icon">◎</span>Presupuestos</button>
+        <button class="nav-item" data-view="reports"><span class="icon">⌁</span>Informes</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="sync-card"><span class="sync-dot"></span><div><strong>Datos cifrados</strong><small>AES-256-GCM</small></div></div>
+        <button class="nav-item" id="exportBtn"><span class="icon">⇩</span>Exportar CSV</button>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <div><p class="eyebrow" id="eyebrow">MI ECONOMÍA</p><h1 id="pageTitle">Hola, Javier</h1></div>
+        <div class="top-actions">
+          <label class="month-select"><span>Periodo</span><select id="monthFilter" aria-label="Seleccionar mes"></select></label>
+          <button class="avatar" aria-label="Perfil">JA</button>
+        </div>
+      </header>
+
+      <section class="view active" id="dashboardView">
+        <div class="hero-grid">
+          <article class="balance-card">
+            <div class="card-heading"><div><span class="label">Balance del mes</span><strong class="hero-amount" id="monthBalance">0,00 €</strong></div><span class="trend" id="balanceTrend">—</span></div>
+            <div class="balance-split">
+              <div><span class="mini-icon income">↙</span><p>Ingresos</p><strong id="totalIncome">0,00 €</strong></div>
+              <div><span class="mini-icon expense">↗</span><p>Gastos</p><strong id="totalExpense">0,00 €</strong></div>
+              <div><span class="mini-icon savings">◇</span><p>Tasa de ahorro</p><strong id="savingsRate">0%</strong></div>
+            </div>
+          </article>
+          <article class="quick-card">
+            <div><span class="label">Añadir movimiento</span><h2>¿Qué ha pasado?</h2><p>Regístralo en menos de 15 segundos.</p></div>
+            <div class="quick-buttons"><button class="quick-btn expense" data-add="expense"><span>−</span>Gasto</button><button class="quick-btn income" data-add="income"><span>＋</span>Ingreso</button></div>
+          </article>
+        </div>
+
+        <div class="content-grid">
+          <article class="panel chart-panel">
+            <div class="panel-title"><div><span class="label">Evolución</span><h2>Ingresos y gastos</h2></div><div class="legend"><span><i class="income"></i>Ingresos</span><span><i class="expense"></i>Gastos</span></div></div>
+            <div class="bar-chart" id="monthlyChart" aria-label="Comparativa mensual"></div>
+          </article>
+          <article class="panel category-panel">
+            <div class="panel-title"><div><span class="label">Análisis</span><h2>¿En qué gastas?</h2></div><button class="text-btn" data-view-link="reports">Ver todo →</button></div>
+            <div class="donut-wrap"><div class="donut" id="categoryDonut"><div><span>Gastos</span><strong id="donutTotal">0 €</strong></div></div><div class="category-list" id="categoryList"></div></div>
+          </article>
+        </div>
+
+        <article class="panel recent-panel">
+          <div class="panel-title"><div><span class="label">Actividad</span><h2>Últimos movimientos</h2></div><button class="text-btn" data-view-link="transactions">Ver todos →</button></div>
+          <div class="transaction-list" id="recentTransactions"></div>
+        </article>
+      </section>
+
+      <section class="view" id="transactionsView">
+        <div class="section-toolbar">
+          <div class="search-box">⌕<input id="searchInput" type="search" placeholder="Buscar por concepto, categoría o cuenta…" /></div>
+          <select id="typeFilter"><option value="all">Todos los tipos</option><option value="expense">Gastos</option><option value="income">Ingresos</option></select>
+          <button class="primary-btn" data-add="expense">＋ Añadir</button>
+        </div>
+        <article class="panel"><div class="transaction-list full" id="allTransactions"></div></article>
+      </section>
+
+      <section class="view" id="budgetsView">
+        <div class="section-intro"><div><p class="eyebrow">CONTROL MENSUAL</p><h2>Presupuestos por categoría</h2><p>Marca límites y detecta rápidamente dónde te estás pasando.</p></div><button class="primary-btn" id="editBudgets">Editar límites</button></div>
+        <div class="budget-grid" id="budgetGrid"></div>
+      </section>
+
+      <section class="view" id="reportsView">
+        <div class="report-kpis" id="reportKpis"></div>
+        <div class="content-grid reports-grid">
+          <article class="panel"><div class="panel-title"><div><span class="label">Naturaleza</span><h2>Gasto fijo vs. variable</h2></div></div><div id="natureAnalysis"></div></article>
+          <article class="panel"><div class="panel-title"><div><span class="label">Medios de pago</span><h2>Gasto por cuenta</h2></div></div><div id="accountAnalysis" class="analysis-bars"></div></article>
+        </div>
+        <article class="panel insight-panel"><span class="insight-icon">✦</span><div><span class="label">LECTURA DEL MES</span><h2 id="insightTitle">Tu análisis aparecerá aquí</h2><p id="insightText">Añade movimientos para obtener conclusiones automáticas sobre tus finanzas.</p></div></article>
+      </section>
+    </main>
+
+    <nav class="mobile-nav" aria-label="Navegación móvil">
+      <button class="active" data-view="dashboard"><span>⌂</span>Resumen</button>
+      <button data-view="transactions"><span>↕</span>Movimientos</button>
+      <button class="mobile-add" data-add="expense">＋</button>
+      <button data-view="budgets"><span>◎</span>Objetivos</button>
+      <button data-view="reports"><span>⌁</span>Informes</button>
+    </nav>
+  </div>
+
+  <dialog id="transactionDialog">
+    <form method="dialog" id="transactionForm">
+      <div class="modal-header"><div><span class="label">NUEVO MOVIMIENTO</span><h2 id="modalTitle">Añadir gasto</h2></div><button class="close-btn" value="cancel" aria-label="Cerrar">×</button></div>
+      <div class="type-switch"><button type="button" data-type="expense" class="active">Gasto</button><button type="button" data-type="income">Ingreso</button></div>
+      <input type="hidden" id="transactionType" value="expense" />
+      <label class="amount-field"><span>Importe</span><div><input id="amount" required inputmode="decimal" placeholder="0,00" autocomplete="off" /><b>€</b></div></label>
+      <div class="form-grid">
+        <label><span>Concepto</span><input id="concept" required maxlength="60" placeholder="Ej. Compra Mercadona" /></label>
+        <label><span>Fecha</span><input id="date" required type="date" /></label>
+        <label><span>Categoría</span><select id="category" required></select></label>
+        <label><span>Cuenta</span><select id="account" required><option>Cuenta principal</option><option>Revolut</option><option>Efectivo</option><option>Tarjeta crédito</option></select></label>
+        <label><span>Naturaleza</span><select id="nature"><option value="variable">Variable</option><option value="fixed">Fijo</option></select></label>
+        <label><span>Nota (opcional)</span><input id="note" maxlength="100" placeholder="Añade un detalle" /></label>
+      </div>
+      <button class="submit-btn" type="submit">Guardar movimiento</button>
+    </form>
+  </dialog>
+
+  <dialog id="budgetDialog">
+    <form method="dialog" id="budgetForm"><div class="modal-header"><div><span class="label">PLANIFICACIÓN</span><h2>Límites mensuales</h2></div><button class="close-btn" value="cancel">×</button></div><div id="budgetFields" class="budget-fields"></div><button class="submit-btn" type="submit">Guardar presupuestos</button></form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status"></div>
+  <script src="app.js"></script>
+</body>
+</html>
