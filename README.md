@@ -14,6 +14,9 @@ Aplicación independiente y responsive para registrar y analizar gastos e ingres
 - Acceso limitado al correo autorizado mediante enlace de un solo uso.
 - Sincronización cifrada entre ordenador y móvil mediante Supabase.
 - Row Level Security: cada lectura y escritura exige el usuario autorizado.
+- Registro inteligente desde texto libre o capturas de tiques y operaciones bancarias.
+- OCR ejecutado en el propio dispositivo: la imagen no se sube ni se guarda.
+- Detección de importe, fecha, concepto, gasto/ingreso, categoría, cuenta y naturaleza, siempre con confirmación previa.
 
 ## Probar en local
 

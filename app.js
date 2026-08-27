@@ -138,18 +138,71 @@ function renderReports(){
     const pct=Math.round(top[1]/total*100),saving=income-total;$('#insightText').textContent=`Representa el ${pct}% de tus gastos de ${monthName(selectedMonth).toLowerCase()}. ${saving>=0?`Has ahorrado ${euro.format(saving)}, un ${income?Math.round(saving/income*100):0}% de tus ingresos.`:`Tus gastos superan tus ingresos en ${euro.format(Math.abs(saving))}.`}`}
 }
 function render(){populateMonths();renderDashboard();renderAllTransactions();renderBudgets();renderReports()}
-function switchView(name){$$('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===name));$$('.view').forEach(v=>v.classList.remove('active'));$(`#${name}View`).classList.add('active');const titles={dashboard:'Hola, Javier',transactions:'Tus movimientos',budgets:'Presupuestos',reports:'Análisis mensual'};$('#pageTitle').textContent=titles[name];$('#eyebrow').textContent=name==='dashboard'?'MI ECONOMÍA':monthName(selectedMonth).toUpperCase();window.scrollTo({top:0,behavior:'smooth'})}
+function switchView(name){$$('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===name));$$('.view').forEach(v=>v.classList.remove('active'));$(`#${name}View`).classList.add('active');const titles={dashboard:'Mi resumen',transactions:'Tus movimientos',budgets:'Presupuestos',reports:'Análisis mensual'};$('#pageTitle').textContent=titles[name];$('#eyebrow').textContent=name==='dashboard'?'MI ECONOMÍA':monthName(selectedMonth).toUpperCase();window.scrollTo({top:0,behavior:'smooth'})}
 function openTransaction(type='expense'){$('#transactionType').value=type;$('#modalTitle').textContent=type==='expense'?'Añadir gasto':'Añadir ingreso';$$('.type-switch button').forEach(b=>b.classList.toggle('active',b.dataset.type===type));categoryOptions(type);$('#date').value=new Date().toISOString().slice(0,10);$('#transactionDialog').showModal();setTimeout(()=>$('#amount').focus(),100)}
 function toast(msg){const el=$('#toast');el.textContent=msg;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2400)}
 function escapeHtml(s){return String(s).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
 
-$$('[data-view]').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view)));$$('[data-view-link]').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.viewLink)));$$('[data-add]').forEach(b=>b.addEventListener('click',()=>openTransaction(b.dataset.add)));
+let smartImageFile=null;
+let receiptPreviewUrl='';
+function setRecognitionProgress(progress,status){
+  $('#recognitionProgress').hidden=false;
+  $('#recognitionBar').style.width=`${Math.max(4,Math.round(progress*100))}%`;
+  $('#recognitionStatus').textContent=status;
+}
+function clearReceiptPreview(){
+  if(receiptPreviewUrl)URL.revokeObjectURL(receiptPreviewUrl);
+  receiptPreviewUrl='';smartImageFile=null;$('#receiptImage').value='';$('#receiptPreview').hidden=true;$('#receiptPreview').removeAttribute('src');$('#receiptFileName').textContent='Elegir captura o hacer foto';
+}
+function setSmartImage(file){
+  if(!file?.type?.startsWith('image/')){toast('Selecciona una imagen válida');return}
+  clearReceiptPreview();smartImageFile=file;receiptPreviewUrl=URL.createObjectURL(file);$('#receiptPreview').src=receiptPreviewUrl;$('#receiptPreview').hidden=false;$('#receiptFileName').textContent=file.name||'Captura pegada';$('#smartError').textContent='';
+}
+function resetSmartImport(){
+  $('#smartImportForm').reset();$('#smartError').textContent='';$('#recognitionProgress').hidden=true;$('#recognitionBar').style.width='4%';clearReceiptPreview();
+}
+function openSmartImport(){resetSmartImport();$('#smartImportDialog').showModal();setTimeout(()=>$('#smartText').focus(),100)}
+function prefillRecognizedMovement(result){
+  $('#smartImportDialog').close();openTransaction(result.type);
+  $('#amount').value=result.amount?String(result.amount).replace('.',','):'';$('#concept').value=result.concept||'';$('#date').value=result.date;categoryOptions(result.type);
+  if([...$('#category').options].some(option=>option.value===result.category))$('#category').value=result.category;
+  $('#account').value=result.account;$('#nature').value=result.nature;$('#note').value=`${result.note} · confianza ${result.confidence}%`;
+  toast('Campos reconocidos: revísalos antes de guardar');
+}
+async function imageForOcr(file){
+  const bitmap=await createImageBitmap(file),maxSide=1800,scale=Math.min(1,maxSide/Math.max(bitmap.width,bitmap.height)),canvas=document.createElement('canvas');
+  canvas.width=Math.round(bitmap.width*scale);canvas.height=Math.round(bitmap.height*scale);const context=canvas.getContext('2d',{alpha:false});context.fillStyle='#fff';context.fillRect(0,0,canvas.width,canvas.height);context.drawImage(bitmap,0,0,canvas.width,canvas.height);bitmap.close();return canvas;
+}
+async function recognizeSmartInput(){
+  let text=$('#smartText').value.trim();
+  if(smartImageFile){
+    if(!window.Tesseract)throw new Error('El lector de capturas no ha terminado de cargar. Comprueba la conexión y vuelve a intentarlo.');
+    setRecognitionProgress(.03,'Preparando la imagen en tu dispositivo…');
+    const image=await imageForOcr(smartImageFile),result=await window.Tesseract.recognize(image,'spa+eng',{logger:message=>{
+      if(message.status==='recognizing text')setRecognitionProgress(message.progress,`Leyendo la captura… ${Math.round(message.progress*100)}%`);
+      else if(message.status)setRecognitionProgress(Math.min(message.progress||.08,.2),'Preparando el reconocimiento privado…');
+    }});
+    text=[text,result.data.text].filter(Boolean).join('\n');
+  }
+  if(!text)throw new Error('Escribe el movimiento o selecciona una captura.');
+  setRecognitionProgress(1,'Movimiento reconocido. Preparando la revisión…');
+  const parsed=window.MiDineroParser.parseMovementText(text);
+  if(!parsed.amount)throw new Error('No he encontrado un importe claro. Escríbelo junto al texto y vuelve a intentarlo.');
+  return parsed;
+}
+
+$$('[data-view]').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view)));$$('[data-view-link]').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.viewLink)));$$('[data-add]').forEach(b=>b.addEventListener('click',()=>openTransaction(b.dataset.add)));$$('[data-smart-import]').forEach(b=>b.addEventListener('click',openSmartImport));
 $$('.type-switch button').forEach(b=>b.addEventListener('click',()=>{const type=b.dataset.type;$('#transactionType').value=type;$('#modalTitle').textContent=type==='expense'?'Añadir gasto':'Añadir ingreso';$$('.type-switch button').forEach(x=>x.classList.toggle('active',x===b));categoryOptions(type)}));
 $('#monthFilter').addEventListener('change',e=>{selectedMonth=e.target.value;render();const current=$('.view.active').id.replace('View','');switchView(current)});$('#searchInput').addEventListener('input',renderAllTransactions);$('#typeFilter').addEventListener('change',renderAllTransactions);
 $('#transactionForm').addEventListener('submit',e=>{e.preventDefault();const amount=parseFloat($('#amount').value.replace(',','.')),movementDate=$('#date').value;if(!amount||amount<=0){toast('Introduce un importe válido');return}transactions.push({id:crypto.randomUUID(),type:$('#transactionType').value,amount,concept:$('#concept').value.trim(),date:movementDate,category:$('#category').value,account:$('#account').value,nature:$('#nature').value,note:$('#note').value.trim()});e.target.reset();$('#transactionDialog').close();selectedMonth=movementDate.slice(0,7)||selectedMonth;render();persist();toast('Movimiento guardado y sincronizado')});
 document.addEventListener('click',e=>{const id=e.target.dataset.delete;if(id&&confirm('¿Eliminar este movimiento?')){transactions=transactions.filter(t=>t.id!==id);render();persist();toast('Movimiento eliminado')}});
 $('#editBudgets').addEventListener('click',()=>{$('#budgetFields').innerHTML=EXPENSE_CATEGORIES.map(c=>`<label><span>${CATEGORIES[c].icon} ${c}</span><input name="${c}" type="number" min="0" step="10" value="${budgets[c]||0}"></label>`).join('');$('#budgetDialog').showModal()});
 $('#budgetForm').addEventListener('submit',e=>{e.preventDefault();EXPENSE_CATEGORIES.forEach(c=>budgets[c]=Number(e.target.elements[c].value)||0);$('#budgetDialog').close();render();persist();toast('Presupuestos actualizados')});
+$('#receiptImage').addEventListener('change',e=>setSmartImage(e.target.files[0]));
+$('#receiptDropZone').addEventListener('dragover',e=>{e.preventDefault();e.currentTarget.classList.add('dragging')});$('#receiptDropZone').addEventListener('dragleave',e=>e.currentTarget.classList.remove('dragging'));$('#receiptDropZone').addEventListener('drop',e=>{e.preventDefault();e.currentTarget.classList.remove('dragging');setSmartImage([...e.dataTransfer.files].find(file=>file.type.startsWith('image/')))});
+$('#smartImportDialog').addEventListener('paste',e=>{const file=[...e.clipboardData.items].find(item=>item.type.startsWith('image/'))?.getAsFile();if(file){e.preventDefault();setSmartImage(file)}});
+$('#smartImportDialog').addEventListener('close',()=>{if(!$('#transactionDialog').open)resetSmartImport()});
+$('#smartImportForm').addEventListener('submit',async e=>{const button=e.submitter;if(!button||button.value==='cancel')return;e.preventDefault();button.disabled=true;$('#smartError').textContent='';try{prefillRecognizedMovement(await recognizeSmartInput())}catch(err){$('#smartError').textContent=err.message;$('#recognitionProgress').hidden=true}finally{button.disabled=false}});
 $('#exportBtn').addEventListener('click',()=>{const header=['fecha','tipo','concepto','categoria','naturaleza','cuenta','importe','nota'],rows=transactions.map(t=>[t.date,t.type,t.concept,t.category,t.nature,t.account,t.amount,t.note].map(v=>`"${String(v).replaceAll('"','""')}"`).join(';'));const blob=new Blob(['\ufeff'+[header.join(';'),...rows].join('\n')],{type:'text/csv;charset=utf-8'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`mi-dinero-${new Date().toISOString().slice(0,10)}.csv`;a.click();URL.revokeObjectURL(a.href)});
 $('#authForm').addEventListener('submit',async e=>{e.preventDefault();const button=e.submitter,email=$('#authEmail').value.trim().toLowerCase();button.disabled=true;setLockStatus('Enviando enlace privado…');try{await authRequest('otp',{email,create_user:true,email_redirect_to:location.origin+location.pathname});setLockStatus('Si el correo está autorizado, recibirás un enlace de acceso.')}catch(err){setLockStatus(err.message)}finally{button.disabled=false}});
 $('#unlockForm').addEventListener('submit',async e=>{e.preventDefault();const secret=$('#unlockKey').value.trim();setLockStatus('Descargando y descifrando…');try{await unlock(secret)}catch(err){setLockStatus(err.name==='OperationError'?'Clave privada incorrecta.':err.message)}});
