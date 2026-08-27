@@ -18,7 +18,7 @@
       <span class="lock-logo">M</span>
       <p class="eyebrow">ESPACIO PRIVADO</p>
       <h1>Tu dinero, solo para ti.</h1>
-      <p>Acceso exclusivo para Javier. Primero verificamos tu correo y después desciframos los datos en este dispositivo.</p>
+      <p>Acceso privado. Primero verificamos tu correo y después desciframos los datos en este dispositivo.</p>
       <div id="authStep">
         <form id="authForm">
           <label><span>Correo autorizado</span><input id="authEmail" type="email" autocomplete="email" placeholder="Tu correo personal" required /></label>
@@ -52,10 +52,10 @@
 
     <main class="main-content">
       <header class="topbar">
-        <div><p class="eyebrow" id="eyebrow">MI ECONOMÍA</p><h1 id="pageTitle">Hola, Javier</h1></div>
+        <div><p class="eyebrow" id="eyebrow">MI ECONOMÍA</p><h1 id="pageTitle">Mi resumen</h1></div>
         <div class="top-actions">
           <label class="month-select"><span>Periodo</span><select id="monthFilter" aria-label="Seleccionar mes"></select></label>
-          <button class="avatar" aria-label="Perfil">JA</button>
+          <button class="avatar" aria-label="Perfil">M</button>
         </div>
       </header>
 
@@ -71,7 +71,7 @@
           </article>
           <article class="quick-card">
             <div><span class="label">Añadir movimiento</span><h2>¿Qué ha pasado?</h2><p>Regístralo en menos de 15 segundos.</p></div>
-            <div class="quick-buttons"><button class="quick-btn expense" data-add="expense"><span>−</span>Gasto</button><button class="quick-btn income" data-add="income"><span>＋</span>Ingreso</button></div>
+            <div class="quick-buttons"><button class="quick-btn expense" data-add="expense"><span>−</span>Gasto</button><button class="quick-btn income" data-add="income"><span>＋</span>Ingreso</button><button class="quick-btn smart" data-smart-import><span>✦</span>Captura o texto</button></div>
           </article>
         </div>
 
@@ -96,6 +96,7 @@
         <div class="section-toolbar">
           <div class="search-box">⌕<input id="searchInput" type="search" placeholder="Buscar por concepto, categoría o cuenta…" /></div>
           <select id="typeFilter"><option value="all">Todos los tipos</option><option value="expense">Gastos</option><option value="income">Ingresos</option></select>
+          <button class="secondary-btn" data-smart-import>✦ Reconocer</button>
           <button class="primary-btn" data-add="expense">＋ Añadir</button>
         </div>
         <article class="panel"><div class="transaction-list full" id="allTransactions"></div></article>
@@ -147,7 +148,29 @@
     <form method="dialog" id="budgetForm"><div class="modal-header"><div><span class="label">PLANIFICACIÓN</span><h2>Límites mensuales</h2></div><button class="close-btn" value="cancel">×</button></div><div id="budgetFields" class="budget-fields"></div><button class="submit-btn" type="submit">Guardar presupuestos</button></form>
   </dialog>
 
+  <dialog id="smartImportDialog" class="smart-dialog">
+    <form method="dialog" id="smartImportForm">
+      <div class="modal-header"><div><span class="label">REGISTRO INTELIGENTE</span><h2>Captura o escribe el movimiento</h2></div><button class="close-btn" value="cancel" aria-label="Cerrar">×</button></div>
+      <div class="privacy-note"><span>⌁</span><div><strong>Procesamiento privado</strong><small>La captura se analiza en este dispositivo. No se guarda ni se envía a un servidor externo.</small></div></div>
+      <label class="smart-text-label"><span>Descríbelo con tus palabras</span><textarea id="smartText" rows="4" placeholder="Ej. Ayer gasté 24,60 € en Mercadona con Revolut"></textarea></label>
+      <div class="smart-divider"><span>o sube una captura</span></div>
+      <label class="drop-zone" id="receiptDropZone">
+        <input id="receiptImage" type="file" accept="image/*" capture="environment" />
+        <span class="drop-icon">▣</span>
+        <strong id="receiptFileName">Elegir captura o hacer foto</strong>
+        <small>Tique, recibo o detalle de una operación bancaria</small>
+        <img id="receiptPreview" alt="Vista previa de la captura" hidden />
+      </label>
+      <div class="recognition-progress" id="recognitionProgress" hidden><div><i id="recognitionBar"></i></div><span id="recognitionStatus">Preparando reconocimiento…</span></div>
+      <p class="smart-error" id="smartError" role="alert"></p>
+      <button class="submit-btn smart-submit" type="submit"><span>✦</span> Reconocer y rellenar</button>
+      <small class="smart-hint">Revisarás todos los campos antes de guardar el movimiento.</small>
+    </form>
+  </dialog>
+
   <div class="toast" id="toast" role="status"></div>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js" defer></script>
+  <script src="smart-parser.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
